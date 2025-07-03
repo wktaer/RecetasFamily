@@ -812,36 +812,37 @@
             card.innerHTML = `
                 <div class="receta-imagen">
                     ${receta.imagen_url ? 
-                        `<img src="${receta.imagen_url}" alt="${receta.titulo}" onerror="this.parentElement.innerHTML='🍽️'">` : 
+                        `<img src="${receta.imagen_url}" alt="${escapeHtml(receta.titulo)}" onerror="this.parentElement.innerHTML='🍽️'">` : 
                         '🍽️'
                     }
                 </div>
                 <div class="receta-info">
-                    <div class="receta-titulo">${receta.titulo}</div>
-                    <div class="receta-autor">Por: ${receta.autor}</div>
-                    <div class="receta-tiempo">⏱️ ${receta.tiempo}</div>
-                    <div style="margin-top: 15px;">
-                        <button class="btn btn-primary" onclick="verReceta(${receta.id})" style="margin-right: 10px; padding: 8px 15px; font-size: 14px;">👁️ Ver</button>
-                        <button class="btn btn-secondary" onclick="editarReceta(${receta.id})" style="margin-right: 10px; padding: 8px 15px; font-size: 14px;">✏️ Editar</button>
-                        <button class="btn btn-danger" onclick="eliminarReceta(${receta.id})" style="padding: 8px 15px; font-size: 14px;">🗑️ Eliminar</button>
+                    <div class="receta-titulo">${escapeHtml(receta.titulo)}</div>
+                    <div class="receta-autor">Por ${escapeHtml(receta.autor)}</div>
+                    <div class="receta-tiempo">⏱️ ${escapeHtml(receta.tiempo)}</div>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button class="btn btn-primary" ... onclick="verReceta('${receta.id}')">👁️ Ver</button>
+<button class="btn btn-secondary" ... onclick="editarReceta('${receta.id}')">✏️ Editar</button>
+<button class="btn btn-danger" ... onclick="eliminarReceta('${receta.id}', '${escapeHtml(receta.titulo)}')">🗑️ Eliminar</button>
+
                     </div>
-                    <div style="margin-top: 10px; font-size: 12px; color: #999;">
+                    <div style="margin-top: 10px; color: #999; font-size: 12px;">
                         Agregada el ${fechaFormateada}
                     </div>
                 </div>
             `;
-
+            
             return card;
         }
 
         // ========================================
-        // FUNCIONES PARA AGREGAR RECETAS
+        // AGREGAR NUEVA RECETA
         // ========================================
         document.getElementById('form-receta').addEventListener('submit', async (e) => {
             e.preventDefault();
             
             const formData = new FormData(e.target);
-            const receta = {
+            const recetaData = {
                 titulo: formData.get('titulo'),
                 ingredientes: formData.get('ingredientes'),
                 preparacion: formData.get('preparacion'),
@@ -851,39 +852,38 @@
             };
 
             try {
-                let imagenUrl = null;
-                const imagen = formData.get('imagen');
-                
-                if (imagen && imagen.size > 0) {
-                    const nombreArchivo = `${Date.now()}_${imagen.name}`;
-                    const { data, error } = await supabase.storage
-                        .from('recetas-imagenes')
-                        .upload(nombreArchivo, imagen);
-                    
-                    if (error) throw error;
-                    
-                    const { data: urlData } = supabase.storage
-                        .from('recetas-imagenes')
-                        .getPublicUrl(nombreArchivo);
-                    
-                    imagenUrl = urlData.publicUrl;
-                }
+                const archivo = formData.get('imagen');
+                if (archivo && archivo.size > 0) {
+                    // Subir imagen
+                    const nombreArchivo = `${Date.now()}_${archivo.name}`;
+                    const { data, error: uploadError } = await supabase.storage
+                        .from('imagenes-recetas')
+                        .upload(nombreArchivo, archivo);
 
-                receta.imagen_url = imagenUrl;
+                    if (uploadError) throw uploadError;
+
+                    // Obtener URL pública
+                    const { data: { publicUrl } } = supabase.storage
+                        .from('imagenes-recetas')
+                        .getPublicUrl(nombreArchivo);
+
+                    recetaData.imagen_url = publicUrl;
+                }
 
                 const { data, error } = await supabase
                     .from('recetas')
-                    .insert([receta]);
+                    .insert([recetaData])
+                    .select();
 
                 if (error) throw error;
 
                 mostrarMensaje('mensaje', '¡Receta agregada exitosamente! 🎉');
-                e.target.reset();
+                document.getElementById('form-receta').reset();
                 
-                // Cambiar a la sección de recetas después de 2 segundos
+                // Cambiar a la vista de lista y recargar
                 setTimeout(() => {
                     mostrarSeccion('lista');
-                }, 2000);
+                }, 1500);
 
             } catch (error) {
                 console.error('Error al agregar receta:', error);
@@ -892,7 +892,7 @@
         });
 
         // ========================================
-        // FUNCIONES PARA VER RECETAS
+        // VER RECETA COMPLETA
         // ========================================
         async function verReceta(id) {
             try {
@@ -904,51 +904,44 @@
 
                 if (error) throw error;
 
-                const modal = document.getElementById('modal-receta');
-                const detalle = document.getElementById('receta-detalle');
-                
                 const fechaFormateada = new Date(receta.fecha).toLocaleDateString('es-ES', {
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'
                 });
 
-                detalle.innerHTML = `
-                    ${receta.imagen_url ? 
-                        `<img src="${receta.imagen_url}" alt="${receta.titulo}" class="receta-detalle-imagen">` : 
-                        ''
-                    }
-                    <h2 style="color: #8b4513; margin-bottom: 15px;">${receta.titulo}</h2>
-                    <div style="margin-bottom: 20px;">
-                        <span style="background: #f0f8e8; padding: 8px 15px; border-radius: 20px; color: #4a5d23; font-weight: bold;">⏱️ ${receta.tiempo}</span>
-                        <span style="background: #e3f2fd; padding: 8px 15px; border-radius: 20px; color: #1976d2; font-weight: bold; margin-left: 10px;">👩‍🍳 ${receta.autor}</span>
+                document.getElementById('receta-detalle').innerHTML = `
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h2 style="color: #8b4513; margin-bottom: 10px;">${escapeHtml(receta.titulo)}</h2>
+                        <p style="color: #6b5b73; font-style: italic; font-size: 1.1em;">Por ${escapeHtml(receta.autor)}</p>
+                        <div style="color: #4a5d23; background: #f0f8e8; padding: 8px 15px; border-radius: 20px; display: inline-block; margin: 10px 0;">
+                            ⏱️ ${escapeHtml(receta.tiempo)}
+                        </div>
+                        <div style="color: #999; font-size: 14px;">Agregada el ${fechaFormateada}</div>
                     </div>
+                    
+                    ${receta.imagen_url ? `<img src="${receta.imagen_url}" alt="${escapeHtml(receta.titulo)}" class="receta-detalle-imagen">` : ''}
+                    
                     <div class="ingredientes-list">
-                        <h3 style="color: #8b4513; margin-bottom: 15px;">🥘 Ingredientes:</h3>
-                        <div style="white-space: pre-wrap; line-height: 1.6;">${receta.ingredientes}</div>
+                        <h3 style="color: #8b4513; margin-bottom: 15px;">🥘 Ingredientes</h3>
+                        <div style="white-space: pre-wrap; line-height: 1.6;">${escapeHtml(receta.ingredientes)}</div>
                     </div>
+                    
                     <div class="preparacion-list">
-                        <h3 style="color: #8b4513; margin-bottom: 15px;">👨‍🍳 Preparación:</h3>
-                        <div style="white-space: pre-wrap; line-height: 1.6;">${receta.preparacion}</div>
-                    </div>
-                    <div style="margin-top: 20px; text-align: center; font-size: 14px; color: #999;">
-                        Agregada el ${fechaFormateada}
+                        <h3 style="color: #8b4513; margin-bottom: 15px;">👨‍🍳 Preparación</h3>
+                        <div style="white-space: pre-wrap; line-height: 1.6;">${escapeHtml(receta.preparacion)}</div>
                     </div>
                 `;
 
-                modal.classList.add('active');
+                document.getElementById('modal-receta').classList.add('active');
             } catch (error) {
                 console.error('Error al cargar receta:', error);
                 alert('Error al cargar la receta');
             }
         }
 
-        function cerrarModal() {
-            document.getElementById('modal-receta').classList.remove('active');
-        }
-
         // ========================================
-        // FUNCIONES PARA EDITAR RECETAS
+        // EDITAR RECETA
         // ========================================
         async function editarReceta(id) {
             try {
@@ -960,7 +953,8 @@
 
                 if (error) throw error;
 
-                // Rellenar el formulario de edición
+                recetaEditando = receta;
+                
                 document.getElementById('edit-id').value = receta.id;
                 document.getElementById('edit-titulo').value = receta.titulo;
                 document.getElementById('edit-ingredientes').value = receta.ingredientes;
@@ -968,7 +962,6 @@
                 document.getElementById('edit-tiempo').value = receta.tiempo;
                 document.getElementById('edit-autor').value = receta.autor;
 
-                // Mostrar el modal
                 document.getElementById('modal-editar').classList.add('active');
             } catch (error) {
                 console.error('Error al cargar receta para editar:', error);
@@ -976,19 +969,15 @@
             }
         }
 
-        function cerrarModalEditar() {
-            document.getElementById('modal-editar').classList.remove('active');
-            document.getElementById('form-editar').reset();
-        }
-
-        // Manejar el envío del formulario de edición
         document.getElementById('form-editar').addEventListener('submit', async (e) => {
             e.preventDefault();
             
             const formData = new FormData(e.target);
-            const id = formData.get('id') || document.getElementById('edit-id').value;
+            const id = formData.get('titulo') ? document.getElementById('edit-id').value : null;
             
-            const recetaActualizada = {
+            if (!id) return;
+
+            const recetaData = {
                 titulo: formData.get('titulo'),
                 ingredientes: formData.get('ingredientes'),
                 preparacion: formData.get('preparacion'),
@@ -997,27 +986,29 @@
             };
 
             try {
-                const imagen = formData.get('imagen');
-                
-                if (imagen && imagen.size > 0) {
-                    const nombreArchivo = `${Date.now()}_${imagen.name}`;
-                    const { data, error } = await supabase.storage
-                        .from('recetas-imagenes')
-                        .upload(nombreArchivo, imagen);
-                    
-                    if (error) throw error;
-                    
-                    const { data: urlData } = supabase.storage
-                        .from('recetas-imagenes')
+                const archivo = formData.get('imagen');
+                if (archivo && archivo.size > 0) {
+                    // Subir nueva imagen
+                    const nombreArchivo = `${Date.now()}_${archivo.name}`;
+                    const { data, error: uploadError } = await supabase.storage
+                        .from('imagenes-recetas')
+                        .upload(nombreArchivo, archivo);
+
+                    if (uploadError) throw uploadError;
+
+                    // Obtener URL pública
+                    const { data: { publicUrl } } = supabase.storage
+                        .from('imagenes-recetas')
                         .getPublicUrl(nombreArchivo);
-                    
-                    recetaActualizada.imagen_url = urlData.publicUrl;
+
+                    recetaData.imagen_url = publicUrl;
                 }
 
                 const { data, error } = await supabase
                     .from('recetas')
-                    .update(recetaActualizada)
-                    .eq('id', id);
+                    .update(recetaData)
+                    .eq('id', id)
+                    .select();
 
                 if (error) throw error;
 
@@ -1026,7 +1017,7 @@
                 setTimeout(() => {
                     cerrarModalEditar();
                     cargarRecetas();
-                }, 2000);
+                }, 1500);
 
             } catch (error) {
                 console.error('Error al actualizar receta:', error);
@@ -1035,86 +1026,101 @@
         });
 
         // ========================================
-        // FUNCIONES PARA ELIMINAR RECETAS
+        // ELIMINAR RECETA
         // ========================================
-        async function eliminarReceta(id) {
-            if (!confirm('¿Estás seguro de que quieres eliminar esta receta? Esta acción no se puede deshacer.')) {
+        async function eliminarReceta(id, titulo) {
+            if (!confirm(`¿Estás seguro de que quieres eliminar la receta "${titulo}"?`)) {
                 return;
             }
 
             try {
-                const { data, error } = await supabase
+                const { error } = await supabase
                     .from('recetas')
                     .delete()
                     .eq('id', id);
 
                 if (error) throw error;
 
-                alert('Receta eliminada exitosamente');
+                mostrarMensaje('mensaje', 'Receta eliminada exitosamente', 'success');
                 cargarRecetas();
             } catch (error) {
                 console.error('Error al eliminar receta:', error);
-                alert('Error al eliminar la receta');
+                mostrarMensaje('mensaje', 'Error al eliminar la receta', 'error');
             }
         }
 
         // ========================================
-        // FUNCIONES PARA EL MENÚ DE VOTACIÓN
+        // FUNCIONES DEL MODAL
+        // ========================================
+        function cerrarModal() {
+            document.getElementById('modal-receta').classList.remove('active');
+        }
+
+        function cerrarModalEditar() {
+            document.getElementById('modal-editar').classList.remove('active');
+            document.getElementById('mensaje-editar').innerHTML = '';
+            recetaEditando = null;
+        }
+
+        // ========================================
+        // SECCIÓN DE MENÚ Y VOTACIÓN
         // ========================================
         function inicializarSeccionMenu() {
-            // Establecer la fecha de mañana
-            document.getElementById('fecha-manana').textContent = fechaManana.toLocaleDateString('es-ES', {
+            // Mostrar fecha de mañana
+            const fechaFormateada = fechaManana.toLocaleDateString('es-ES', {
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric'
             });
+            document.getElementById('fecha-manana').textContent = fechaFormateada;
 
-            // Configurar eventos para las opciones de comida
-            document.querySelectorAll('.opcion-comida').forEach(opcion => {
-                opcion.addEventListener('click', function() {
-                    const checkbox = this.querySelector('input[type="checkbox"]');
-                    checkbox.checked = !checkbox.checked;
-                    this.classList.toggle('selected', checkbox.checked);
-                });
-            });
-
-            // Cargar resultados existentes
+            // Cargar resultados de votación
             cargarResultadosVotacion();
         }
 
+        // Manejar selección de opciones de comida
+        document.getElementById('opciones-comida').addEventListener('click', (e) => {
+            const opcion = e.target.closest('.opcion-comida');
+            if (opcion) {
+                const checkbox = opcion.querySelector('input[type="checkbox"]');
+                checkbox.checked = !checkbox.checked;
+                opcion.classList.toggle('selected', checkbox.checked);
+            }
+        });
+
         async function guardarVotacion() {
             const votante = document.getElementById('votante').value;
-            const opcionesSeleccionadas = document.querySelectorAll('.opcion-comida input[type="checkbox"]:checked');
-            
+            const opcionesSeleccionadas = document.querySelectorAll('#opciones-comida input[type="checkbox"]:checked');
+
             if (!votante) {
-                mostrarMensaje('mensaje-menu', 'Por favor, selecciona quién eres antes de votar.', 'error');
+                mostrarMensaje('mensaje-menu', 'Por favor, selecciona quién eres', 'error');
                 return;
             }
 
             if (opcionesSeleccionadas.length === 0) {
-                mostrarMensaje('mensaje-menu', 'Por favor, selecciona al menos una opción de comida.', 'error');
+                mostrarMensaje('mensaje-menu', 'Por favor, selecciona al menos una opción de comida', 'error');
                 return;
             }
 
             try {
                 const fechaVotacion = fechaManana.toISOString().split('T')[0];
                 
-                // Eliminar votos anteriores del mismo votante para la misma fecha
+                // Primero, eliminar votos previos de este usuario para esta fecha
                 await supabase
                     .from('votos_menu')
                     .delete()
                     .eq('votante', votante)
                     .eq('fecha', fechaVotacion);
 
-                // Guardar nuevos votos
-                const votos = Array.from(opcionesSeleccionadas).map(opcion => ({
+                // Insertar nuevos votos
+                const votos = Array.from(opcionesSeleccionadas).map(checkbox => ({
                     votante: votante,
-                    comida: opcion.value,
+                    comida: checkbox.value,
                     fecha: fechaVotacion
                 }));
 
-                const { data, error } = await supabase
+                const { error } = await supabase
                     .from('votos_menu')
                     .insert(votos);
 
@@ -1123,11 +1129,13 @@
                 mostrarMensaje('mensaje-menu', '¡Voto registrado exitosamente! 🗳️');
                 
                 // Limpiar selección
-                document.querySelectorAll('.opcion-comida').forEach(opcion => {
-                    opcion.classList.remove('selected');
-                    opcion.querySelector('input[type="checkbox"]').checked = false;
-                });
                 document.getElementById('votante').value = '';
+                document.querySelectorAll('#opciones-comida input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+                document.querySelectorAll('#opciones-comida .opcion-comida').forEach(opcion => {
+                    opcion.classList.remove('selected');
+                });
 
                 // Recargar resultados
                 cargarResultadosVotacion();
@@ -1141,172 +1149,118 @@
         async function cargarResultadosVotacion() {
             const container = document.getElementById('resultados-container');
             const fechaVotacion = fechaManana.toISOString().split('T')[0];
-            
+
             try {
                 const { data: votos, error } = await supabase
                     .from('votos_menu')
                     .select('*')
-                    .eq('fecha', fechaVotacion);
+                    .eq('fecha', fechaVotacion)
+                    .order('comida');
 
                 if (error) throw error;
 
-                // Agrupar votos por comida
-                const votosAgrupados = {};
-                votos.forEach(voto => {
-                    if (!votosAgrupados[voto.comida]) {
-                        votosAgrupados[voto.comida] = [];
-                    }
-                    votosAgrupados[voto.comida].push(voto.votante);
-                });
-
-                // Obtener todas las opciones de comida
-                const opcionesComida = {
-                    'pizza': { emoji: '🍕', nombre: 'Pizza' },
-                    'pasta': { emoji: '🍝', nombre: 'Pasta' },
-                    'hamburguesa': { emoji: '🍔', nombre: 'Hamburguesa' },
-                    'sushi': { emoji: '🍣', nombre: 'Sushi' },
-                    'tacos': { emoji: '🌮', nombre: 'Tacos' },
-                    'pollo': { emoji: '🍗', nombre: 'Pollo' },
-                    'ensalada': { emoji: '🥗', nombre: 'Ensalada' },
-                    'carne': { emoji: '🥩', nombre: 'Carne' },
-                    'pescado': { emoji: '🐟', nombre: 'Pescado' },
-                    'empanadas': { emoji: '🥟', nombre: 'Empanadas' }
+                // Procesar votos
+                const resultados = {};
+                const comidasInfo = {
+                    pizza: { emoji: '🍕', nombre: 'Pizza' },
+                    pasta: { emoji: '🍝', nombre: 'Pasta' },
+                    hamburguesa: { emoji: '🍔', nombre: 'Hamburguesa' },
+                    sushi: { emoji: '🍣', nombre: 'Sushi' },
+                    tacos: { emoji: '🌮', nombre: 'Tacos' },
+                    pollo: { emoji: '🍗', nombre: 'Pollo' },
+                    ensalada: { emoji: '🥗', nombre: 'Ensalada' },
+                    carne: { emoji: '🥩', nombre: 'Carne' },
+                    pescado: { emoji: '🐟', nombre: 'Pescado' },
+                    empanadas: { emoji: '🥟', nombre: 'Empanadas' }
                 };
 
-                // Crear array de resultados ordenados por votos
-                const resultados = Object.entries(opcionesComida).map(([comida, info]) => ({
-                    comida,
-                    info,
-                    votos: votosAgrupados[comida] || [],
-                    cantidadVotos: (votosAgrupados[comida] || []).length
-                })).sort((a, b) => b.cantidadVotos - a.cantidadVotos);
+                // Inicializar resultados
+                Object.keys(comidasInfo).forEach(comida => {
+                    resultados[comida] = {
+                        ...comidasInfo[comida],
+                        votos: 0,
+                        votantes: []
+                    };
+                });
+
+                // Contar votos
+                votos.forEach(voto => {
+                    if (resultados[voto.comida]) {
+                        resultados[voto.comida].votos++;
+                        resultados[voto.comida].votantes.push(voto.votante);
+                    }
+                });
+
+                // Ordenar por número de votos
+                const resultadosOrdenados = Object.entries(resultados)
+                    .sort(([,a], [,b]) => b.votos - a.votos);
 
                 const totalVotos = votos.length;
-                const maxVotos = Math.max(...resultados.map(r => r.cantidadVotos), 1);
 
-                container.innerHTML = resultados.map(resultado => {
-                    const porcentaje = totalVotos > 0 ? (resultado.cantidadVotos / maxVotos) * 100 : 0;
-                    
+                if (totalVotos === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: #666; font-style: italic;">Aún no hay votos para mañana</p>';
+                    return;
+                }
+
+                container.innerHTML = resultadosOrdenados.map(([comida, info]) => {
+                    const porcentaje = totalVotos > 0 ? (info.votos / totalVotos) * 100 : 0;
                     return `
                         <div class="resultado-item">
                             <div class="resultado-comida">
-                                <div class="emoji">${resultado.info.emoji}</div>
-                                <div class="nombre">${resultado.info.nombre}</div>
+                                <div class="emoji">${info.emoji}</div>
+                                <div class="nombre">${info.nombre}</div>
                             </div>
                             <div class="resultado-votos">
                                 <div class="barra-progreso">
                                     <div class="barra-progreso-fill" style="width: ${porcentaje}%"></div>
                                 </div>
-                                <span style="font-weight: bold; margin-left: 10px;">${resultado.cantidadVotos}</span>
+                                <span style="font-weight: bold; color: #4a4a4a;">${info.votos} ${info.votos === 1 ? 'voto' : 'votos'}</span>
                             </div>
                         </div>
-                        ${resultado.votos.length > 0 ? `
+                        ${info.votantes.length > 0 ? `
                             <div class="votantes">
-                                ${resultado.votos.map(votante => `<span class="votante">${votante}</span>`).join('')}
+                                ${info.votantes.map(votante => `<span class="votante">${votante}</span>`).join('')}
                             </div>
                         ` : ''}
                     `;
                 }).join('');
 
-                if (resultados.every(r => r.cantidadVotos === 0)) {
-                    container.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No hay votos aún. ¡Sé el primero en votar!</p>';
-                }
-
             } catch (error) {
                 console.error('Error al cargar resultados:', error);
-                container.innerHTML = '<div class="error">Error al cargar los resultados de la votación.</div>';
+                container.innerHTML = '<div class="error">Error al cargar los resultados</div>';
             }
         }
+
+        // ========================================
+        // FUNCIÓN PARA ESCAPAR HTML
+        // ========================================
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, (m) => map[m]);
+        }
+
+        // ========================================
+        // CERRAR MODALES AL HACER CLIC FUERA
+        // ========================================
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                e.target.classList.remove('active');
+            }
+        });
 
         // ========================================
         // INICIALIZACIÓN
         // ========================================
-        document.addEventListener('DOMContentLoaded', function() {
-            // Cargar recetas al inicio
+        document.addEventListener('DOMContentLoaded', () => {
             cargarRecetas();
-            
-            // Cerrar modales al hacer click fuera
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.addEventListener('click', function(e) {
-                    if (e.target === this) {
-                        this.classList.remove('active');
-                    }
-                });
-            });
+            inicializarSeccionMenu();
         });
-
-        // ========================================
-        // FUNCIONES AUXILIARES
-        // ========================================
-        
-        // Función para escapar HTML (prevenir XSS)
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Función para formatear fecha
-        function formatearFecha(fecha) {
-            return new Date(fecha).toLocaleDateString('es-ES', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        }
-
-        // Función para validar imagen
-        function validarImagen(archivo) {
-            const tiposPermitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            const tamañoMaximo = 5 * 1024 * 1024; // 5MB
-            
-            if (!tiposPermitidos.includes(archivo.type)) {
-                throw new Error('Tipo de archivo no permitido. Solo se permiten imágenes JPEG, PNG, GIF y WebP.');
-            }
-            
-            if (archivo.size > tamañoMaximo) {
-                throw new Error('El archivo es demasiado grande. El tamaño máximo es 5MB.');
-            }
-            
-            return true;
-        }
-
-        // Función para comprimir imagen (opcional)
-        function comprimirImagen(archivo, callback) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const img = new Image();
-            
-            img.onload = function() {
-                const maxAncho = 800;
-                const maxAlto = 600;
-                
-                let { width, height } = img;
-                
-                if (width > height) {
-                    if (width > maxAncho) {
-                        height *= maxAncho / width;
-                        width = maxAncho;
-                    }
-                } else {
-                    if (height > maxAlto) {
-                        width *= maxAlto / height;
-                        height = maxAlto;
-                    }
-                }
-                
-                canvas.width = width;
-                canvas.height = height;
-                
-                ctx.drawImage(img, 0, 0, width, height);
-                
-                canvas.toBlob(callback, 'image/jpeg', 0.8);
-            };
-            
-            img.src = URL.createObjectURL(archivo);
-        }
     </script>
 </body>
 </html>
